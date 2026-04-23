@@ -1,0 +1,14 @@
+# Build output (compiled binary at repo root)
+/lazydatabricks
+dist/
+
+# Debug log written by main.go during development
+debug.log
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
