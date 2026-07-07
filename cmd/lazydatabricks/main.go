@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/JosiahDurantini/lazydatabricks/internal/app"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/jos/lazydatabricks/internal/app"
 )
 
 // version is overridden at release time via -ldflags "-X main.version=...".

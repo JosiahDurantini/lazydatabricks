@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JosiahDurantini/lazydatabricks/internal/bundle"
+	"github.com/JosiahDurantini/lazydatabricks/internal/databricks"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jos/lazydatabricks/internal/bundle"
-	"github.com/jos/lazydatabricks/internal/databricks"
 )
 
 // FetchRunsForKeyMsg is sent upward to the app to request recent runs.

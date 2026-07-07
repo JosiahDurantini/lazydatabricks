@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JosiahDurantini/lazydatabricks/internal/bundle"
+	"github.com/JosiahDurantini/lazydatabricks/internal/databricks"
+	"github.com/JosiahDurantini/lazydatabricks/internal/ui/panels"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jos/lazydatabricks/internal/bundle"
-	"github.com/jos/lazydatabricks/internal/databricks"
-	"github.com/jos/lazydatabricks/internal/ui/panels"
 )
 
 type runDetailMsg struct{ detail databricks.RunDetail }

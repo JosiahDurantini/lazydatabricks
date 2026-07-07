@@ -1,4 +1,4 @@
-module github.com/jos/lazydatabricks
+module github.com/JosiahDurantini/lazydatabricks
 
 go 1.22
 

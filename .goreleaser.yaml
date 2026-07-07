@@ -1,0 +1,45 @@
+version: 2
+
+project_name: lazydatabricks
+
+builds:
+  - main: ./cmd/lazydatabricks
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^Merge "
+
+brews:
+  - name: lazydatabricks
+    repository:
+      owner: JosiahDurantini
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/JosiahDurantini/lazydatabricks
+    description: A lazygit-style terminal UI for Databricks
+    license: MIT
+    commit_author:
+      name: goreleaser
+      email: bot@goreleaser.com
+    test: |
+      system "#{bin}/lazydatabricks --version"

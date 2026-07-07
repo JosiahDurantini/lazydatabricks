@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JosiahDurantini/lazydatabricks/internal/databricks"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/jos/lazydatabricks/internal/databricks"
 )
 
 // ── messages ────────────────────────────────────────────────────────────────
