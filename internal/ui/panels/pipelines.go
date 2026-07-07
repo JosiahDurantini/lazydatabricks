@@ -10,12 +10,14 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ── messages ────────────────────────────────────────────────────────────────
 
 type PipelinesLoadedMsg struct{ Pipelines []databricks.PipelineInfo }
 type PipelinesErrMsg struct{ Err error }
+type PipelineStopDoneMsg struct{ Err error }
 
 // ── list.Item adapter ───────────────────────────────────────────────────────
 
@@ -34,13 +36,24 @@ func (p pipelineItem) Description() string {
 // ── model ────────────────────────────────────────────────────────────────────
 
 type PipelinesModel struct {
-	client  *databricks.Client
-	list    list.Model
-	spinner spinner.Model
-	loaded  bool
-	err     error
-	width   int
-	height  int
+	client     *databricks.Client
+	list       list.Model
+	spinner    spinner.Model
+	loaded     bool
+	err        error
+	actionErr  error
+	confirming string // pipeline ID pending stop confirmation, "" if none
+	width      int
+	height     int
+}
+
+// stoppablePipelineStates are states with an update in flight worth stopping.
+var stoppablePipelineStates = map[string]bool{
+	"RUNNING":    true,
+	"STARTING":   true,
+	"DEPLOYING":  true,
+	"RESETTING":  true,
+	"RECOVERING": true,
 }
 
 func NewPipelines(client *databricks.Client) PipelinesModel {
@@ -76,12 +89,34 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 		m.loaded = true
 		m.err = msg.Err
 
+	case PipelineStopDoneMsg:
+		m.actionErr = msg.Err
+		// Refresh so the STOPPING/IDLE state shows up.
+		cmds = append(cmds, fetchPipelines(m.client))
+
 	case tea.KeyMsg:
+		// A stop confirmation is pending: y proceeds, anything else aborts.
+		if m.confirming != "" {
+			id := m.confirming
+			m.confirming = ""
+			if msg.String() == "y" {
+				return m, stopPipeline(m.client, id)
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "r":
 			m.loaded = false
 			m.err = nil
+			m.actionErr = nil
 			cmds = append(cmds, tea.Batch(m.spinner.Tick, fetchPipelines(m.client)))
+		case "x":
+			if sel, ok := m.list.SelectedItem().(pipelineItem); ok && stoppablePipelineStates[sel.pipeline.State] {
+				m.actionErr = nil
+				m.confirming = sel.pipeline.PipelineID
+				return m, nil
+			}
 		}
 	}
 
@@ -106,7 +141,7 @@ func (m *PipelinesModel) SetSize(w, h int) {
 
 // HelpText returns context-sensitive help for the panel.
 func (m PipelinesModel) HelpText() string {
-	return "↑/↓: navigate  r: refresh"
+	return "↑/↓: navigate  x: stop update  r: refresh"
 }
 
 func (m PipelinesModel) ViewList() string {
@@ -157,6 +192,17 @@ func (m PipelinesModel) ViewDetail() string {
 	}
 	row("Creator", p.CreatorUserName)
 
+	if stoppablePipelineStates[p.State] {
+		b.WriteString("\n" + faintStyle.Render("x: stop the active update") + "\n")
+	}
+	if m.confirming != "" {
+		b.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")).
+			Render(fmt.Sprintf("Stop %s? press y to confirm, any other key to abort", p.Name)) + "\n")
+	}
+	if m.actionErr != nil {
+		b.WriteString("\n" + errorStyle.Render("Error: "+m.actionErr.Error()) + "\n")
+	}
+
 	return b.String()
 }
 
@@ -169,5 +215,11 @@ func fetchPipelines(client *databricks.Client) tea.Cmd {
 			return PipelinesErrMsg{err}
 		}
 		return PipelinesLoadedMsg{pipelines}
+	}
+}
+
+func stopPipeline(client *databricks.Client, pipelineID string) tea.Cmd {
+	return func() tea.Msg {
+		return PipelineStopDoneMsg{Err: client.StopPipeline(context.Background(), pipelineID)}
 	}
 }

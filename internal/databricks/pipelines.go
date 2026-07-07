@@ -19,6 +19,13 @@ type PipelineInfo struct {
 	LatestUpdateTime time.Time
 }
 
+// StopPipeline stops the pipeline's active update; the pipeline returns to IDLE.
+func (c *Client) StopPipeline(ctx context.Context, pipelineID string) error {
+	// The waiter is discarded — the panel refreshes rather than blocking.
+	_, err := c.w.Pipelines.Stop(ctx, pipelines.StopRequest{PipelineId: pipelineID})
+	return err
+}
+
 func (c *Client) ListPipelines(ctx context.Context) ([]PipelineInfo, error) {
 	infos, err := c.w.Pipelines.ListPipelinesAll(ctx, pipelines.ListPipelinesRequest{MaxResults: 100})
 	if err != nil {

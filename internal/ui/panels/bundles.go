@@ -70,10 +70,15 @@ type BundlesModel struct {
 	lastSelectedKey string
 	recentRuns      map[string][]databricks.JobRun
 	initCmd         tea.Cmd
+	destroyArmed    bool
+	destroyInput    string
 	err             error
 	width           int
 	height          int
 }
+
+// destroyConfirmWord must be typed in full before a bundle destroy runs.
+const destroyConfirmWord = "destroy"
 
 func newList(title string) list.Model {
 	delegate := list.NewDefaultDelegate()
@@ -121,6 +126,40 @@ func (m BundlesModel) Update(msg tea.Msg) (BundlesModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Destroy confirmation captures all keys until resolved: the word
+		// "destroy" + enter fires it; esc or a mismatched word aborts.
+		if m.destroyArmed {
+			switch msg.String() {
+			case "esc":
+				m.destroyArmed = false
+				m.destroyInput = ""
+			case "enter":
+				armed := m.destroyInput == destroyConfirmWord
+				m.destroyArmed = false
+				m.destroyInput = ""
+				if armed {
+					cfg := m.configs[m.selected]
+					args := []string{"bundle", "destroy"}
+					if t := m.currentTarget(); t != "" {
+						args = append(args, "--target", t)
+					}
+					// The CLI's own prompt can't be answered over a pipe;
+					// the typed confirmation above stands in for it.
+					args = append(args, "--auto-approve")
+					return m, bundleCmd(cfg.RootDir, args...)
+				}
+			case "backspace":
+				if len(m.destroyInput) > 0 {
+					m.destroyInput = m.destroyInput[:len(m.destroyInput)-1]
+				}
+			default:
+				if s := msg.String(); len(s) == 1 && len(m.destroyInput) < len(destroyConfirmWord) {
+					m.destroyInput += s
+				}
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "enter":
 			if m.state == stateBundleList {
@@ -166,6 +205,12 @@ func (m BundlesModel) Update(msg tea.Msg) (BundlesModel, tea.Cmd) {
 				}
 				args = append(args, sel.key)
 				return m, bundleCmd(cfg.RootDir, args...)
+			}
+		case "D":
+			if m.state == stateJobList {
+				m.destroyArmed = true
+				m.destroyInput = ""
+				return m, nil
 			}
 		case ">":
 			if len(m.targets) > 0 {
@@ -266,7 +311,7 @@ func (m BundlesModel) HelpText() string {
 	if m.state == stateBundleList {
 		return "enter: open bundle"
 	}
-	parts := []string{"v: validate", "d: deploy", "r: run job", "< >: target"}
+	parts := []string{"v: validate", "d: deploy", "r: run job", "D: destroy", "< >: target"}
 	if len(m.configs) > 1 {
 		parts = append(parts, "esc: back")
 	}
@@ -332,6 +377,18 @@ func (m BundlesModel) ViewDetail() string {
 
 	if len(m.configs) > 1 {
 		b.WriteString("\n" + faintStyle.Render("esc: back to bundles") + "\n")
+	}
+
+	if m.destroyArmed {
+		target := m.currentTarget()
+		if target == "" {
+			target = "default"
+		}
+		warn := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
+		b.WriteString("\n" + warn.Render(fmt.Sprintf("DESTROY BUNDLE (target: %s)", target)) + "\n")
+		b.WriteString(faintStyle.Render("This deletes every resource this bundle deployed.") + "\n")
+		b.WriteString(fmt.Sprintf("Type %q and press enter to confirm, esc to abort: %s█\n",
+			destroyConfirmWord, m.destroyInput))
 	}
 
 	// Recent runs for the selected job.

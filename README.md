@@ -63,9 +63,11 @@ Press `?` in the app for this list.
 
 **Job Runs:** `x` cancel an in-flight run (press `y` to confirm)
 
-**Bundles:** `enter` open bundle · `v` validate · `d` deploy · `r` run job · `<` `>` cycle target · `esc` back
+**Bundles:** `enter` open bundle · `v` validate · `d` deploy · `r` run job · `<` `>` cycle target · `esc` back · `D` destroy (type `destroy` + enter to confirm)
 
 **Clusters:** `s` start · `x` terminate (press `y` to confirm)
+
+**Pipelines:** `x` stop the active update (press `y` to confirm)
 
 ## Development
 
