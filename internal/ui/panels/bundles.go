@@ -69,6 +69,7 @@ type BundlesModel struct {
 	target          int
 	lastSelectedKey string
 	recentRuns      map[string][]databricks.JobRun
+	initCmd         tea.Cmd
 	err             error
 	width           int
 	height          int
@@ -99,7 +100,7 @@ func NewBundles() BundlesModel {
 
 	if len(configs) == 1 {
 		// Single bundle — jump straight into the job list.
-		m.enterBundle(0) // cmd ignored at init time; app calls Init() separately
+		m.initCmd = m.enterBundle(0)
 	} else {
 		items := make([]list.Item, len(configs))
 		for i, cfg := range configs {
@@ -111,7 +112,7 @@ func NewBundles() BundlesModel {
 	return m
 }
 
-func (m BundlesModel) Init() tea.Cmd { return nil }
+func (m BundlesModel) Init() tea.Cmd { return m.initCmd }
 
 func (m BundlesModel) Update(msg tea.Msg) (BundlesModel, tea.Cmd) {
 	if m.err != nil {

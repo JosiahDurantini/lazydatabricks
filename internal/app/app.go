@@ -14,6 +14,7 @@ import (
 )
 
 type runDetailMsg struct{ detail databricks.RunDetail }
+type runPollErrMsg struct{ err error }
 type clusterInfoMsg struct {
 	clusterID string
 	info      databricks.ClusterInfo
@@ -58,6 +59,15 @@ var (
 	tabInactive = lipgloss.NewStyle().
 			Faint(true).
 			Padding(0, 1)
+
+	helpCardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("12")).
+			Padding(1, 3)
+
+	helpSectionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("11"))
 )
 
 type Model struct {
@@ -71,6 +81,7 @@ type Model struct {
 	lastRunDetail databricks.RunDetail
 	clusterCache  map[string]databricks.ClusterInfo
 	focused       focusedPanel
+	showHelp      bool
 	width         int
 	height        int
 }
@@ -89,7 +100,7 @@ func New() (Model, error) {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.jobRuns.Init()
+	return tea.Batch(m.jobRuns.Init(), m.bundles.Init())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -117,9 +128,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// While the help overlay is open, any key closes it.
+		if m.showHelp {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			m.showHelp = false
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = true
+			return m, nil
 		case "tab":
 			m.focused = focusedPanel((int(m.focused) + 1) % totalPanels)
 			return m, nil
@@ -164,6 +187,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logPane.Finish(msg.Err)
 		m.logCh = nil
 
+	// SDK poll failed — surface it and stop polling.
+	case runPollErrMsg:
+		m.logPane.AppendLine("error polling run status: " + msg.err.Error())
+		m.activeRunID = 0
+
 	// SDK poll returned task status.
 	case runDetailMsg:
 		m.lastRunDetail = msg.detail
@@ -198,14 +226,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// Route to focused panel.
-	switch m.focused {
-	case panelJobRuns:
+	// Key events go only to the focused panel; everything else (async data,
+	// spinner ticks, stream lines) is broadcast so unfocused panels keep
+	// loading. Panels ignore messages that aren't theirs.
+	if _, isKey := msg.(tea.KeyMsg); isKey {
+		switch m.focused {
+		case panelJobRuns:
+			var cmd tea.Cmd
+			m.jobRuns, cmd = m.jobRuns.Update(msg)
+			cmds = append(cmds, cmd)
+		case panelBundles:
+			var cmd tea.Cmd
+			m.bundles, cmd = m.bundles.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+	} else {
 		var cmd tea.Cmd
 		m.jobRuns, cmd = m.jobRuns.Update(msg)
 		cmds = append(cmds, cmd)
-	case panelBundles:
-		var cmd tea.Cmd
 		m.bundles, cmd = m.bundles.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -221,6 +259,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.width == 0 {
 		return "Loading…"
+	}
+
+	if m.showHelp {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.helpOverlay())
 	}
 
 	listW, detailW, mainH := m.mainDimensions()
@@ -280,13 +322,28 @@ func (m Model) helpBar() string {
 	if m.logFocused {
 		return helpStyle.Render("↑/↓/pgup/pgdn: scroll log  esc: back  ctrl+c: quit")
 	}
-	base := "tab: switch panel  ctrl+l: " + logHint(m.logPane.IsVisible()) + "  q: quit"
+	base := "tab: switch panel  ctrl+l: " + logHint(m.logPane.IsVisible()) + "  ?: help  q: quit"
 	switch m.focused {
 	case panelBundles:
 		return helpStyle.Render(m.bundles.HelpText() + "  " + base)
 	default:
-		return helpStyle.Render("↑/↓: navigate  r: refresh  " + base)
+		return helpStyle.Render(m.jobRuns.HelpText() + "  " + base)
 	}
+}
+
+func (m Model) helpOverlay() string {
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("lazydatabricks — keybindings"))
+	b.WriteString("\n\n")
+	b.WriteString(helpSectionStyle.Render("Global") + "\n")
+	b.WriteString("  tab / shift+tab   switch panel\n")
+	b.WriteString("  ctrl+l            show / focus log pane\n")
+	b.WriteString("  ?                 toggle this help\n")
+	b.WriteString("  q / ctrl+c        quit\n\n")
+	b.WriteString(helpSectionStyle.Render("Job Runs") + "\n  " + m.jobRuns.HelpText() + "\n\n")
+	b.WriteString(helpSectionStyle.Render("Bundles") + "\n  " + m.bundles.HelpText() + "\n\n")
+	b.WriteString(helpStyle.Render("press any key to close"))
+	return helpCardStyle.Render(b.String())
 }
 
 func logHint(visible bool) string {
@@ -317,15 +374,13 @@ func fetchClusterInfo(client *databricks.Client, clusterID string) tea.Cmd {
 }
 
 func pollRunDetail(client *databricks.Client, runID int64) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(2 * time.Second)
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 		detail, err := client.GetRunDetail(context.Background(), runID)
 		if err != nil {
-			// Return a done detail so we stop polling on error.
-			return runDetailMsg{databricks.RunDetail{Done: true}}
+			return runPollErrMsg{err}
 		}
 		return runDetailMsg{detail}
-	}
+	})
 }
 
 func formatTaskSummary(d databricks.RunDetail, clusters map[string]databricks.ClusterInfo) string {
@@ -342,16 +397,6 @@ func formatTaskSummary(d databricks.RunDetail, clusters map[string]databricks.Cl
 		"BLOCKED":    "8",
 		"TIMEDOUT":   "3",
 	}
-	clusterStateColors := map[string]string{
-		"RUNNING":     "2",
-		"PENDING":     "11",
-		"RESTARTING":  "11",
-		"RESIZING":    "11",
-		"TERMINATING": "3",
-		"TERMINATED":  "8",
-		"ERROR":       "9",
-	}
-
 	badge := func(state, result string) string {
 		s := result
 		if s == "" {
@@ -394,11 +439,7 @@ func formatTaskSummary(d databricks.RunDetail, clusters map[string]databricks.Cl
 		// Cluster line
 		if t.ClusterID != "" {
 			if info, ok := clusters[t.ClusterID]; ok {
-				col := clusterStateColors[info.State]
-				if col == "" {
-					col = "7"
-				}
-				clusterState := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Render(info.State)
+				clusterState := panels.ClusterStateLabel(info.State)
 				b.WriteString(fmt.Sprintf("  %s cluster: %s  %s  %s\n",
 					faint.Render("  └"),
 					detailValueStyle.Render(info.ClusterName),

@@ -117,6 +117,11 @@ func (m JobRunsModel) Update(msg tea.Msg) (JobRunsModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// HelpText returns context-sensitive help for the panel.
+func (m JobRunsModel) HelpText() string {
+	return "↑/↓: navigate  r: refresh"
+}
+
 // Runs exposes the fetched runs so the app can use them for cross-panel filtering.
 func (m JobRunsModel) Runs() []databricks.JobRun {
 	items := m.list.Items()
