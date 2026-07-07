@@ -25,9 +25,18 @@ type focusedPanel int
 const (
 	panelJobRuns focusedPanel = iota
 	panelBundles
+	panelClusters
 )
 
-const totalPanels = 2
+// tabOrder drives both the tab bar and tab-cycling so they can't drift.
+var tabOrder = []struct {
+	label string
+	panel focusedPanel
+}{
+	{"Job Runs", panelJobRuns},
+	{"Bundles", panelBundles},
+	{"Clusters", panelClusters},
+}
 
 var (
 	paneBorder = lipgloss.NewStyle().
@@ -74,6 +83,7 @@ type Model struct {
 	client        *databricks.Client
 	jobRuns       panels.JobRunsModel
 	bundles       panels.BundlesModel
+	clusters      panels.ClustersModel
 	logPane       panels.LogPane
 	logFocused    bool
 	logCh         <-chan string
@@ -92,15 +102,16 @@ func New() (Model, error) {
 		return Model{}, err
 	}
 	return Model{
-		client:  client,
-		jobRuns: panels.NewJobRuns(client),
-		bundles: panels.NewBundles(),
-		logPane: panels.NewLogPane(),
+		client:   client,
+		jobRuns:  panels.NewJobRuns(client),
+		bundles:  panels.NewBundles(),
+		clusters: panels.NewClusters(client),
+		logPane:  panels.NewLogPane(),
 	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.jobRuns.Init(), m.bundles.Init())
+	return tea.Batch(m.jobRuns.Init(), m.bundles.Init(), m.clusters.Init())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -144,10 +155,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = true
 			return m, nil
 		case "tab":
-			m.focused = focusedPanel((int(m.focused) + 1) % totalPanels)
+			m.focused = focusedPanel((int(m.focused) + 1) % len(tabOrder))
 			return m, nil
 		case "shift+tab":
-			m.focused = focusedPanel((int(m.focused) + totalPanels - 1) % totalPanels)
+			m.focused = focusedPanel((int(m.focused) + len(tabOrder) - 1) % len(tabOrder))
 			return m, nil
 		case "ctrl+l":
 			if m.logPane.IsVisible() {
@@ -239,12 +250,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.bundles, cmd = m.bundles.Update(msg)
 			cmds = append(cmds, cmd)
+		case panelClusters:
+			var cmd tea.Cmd
+			m.clusters, cmd = m.clusters.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 	} else {
 		var cmd tea.Cmd
 		m.jobRuns, cmd = m.jobRuns.Update(msg)
 		cmds = append(cmds, cmd)
 		m.bundles, cmd = m.bundles.Update(msg)
+		cmds = append(cmds, cmd)
+		m.clusters, cmd = m.clusters.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -275,6 +292,9 @@ func (m Model) View() string {
 	case panelBundles:
 		listContent = m.bundles.ViewList()
 		detailContent = m.bundles.ViewDetail()
+	case panelClusters:
+		listContent = m.clusters.ViewList()
+		detailContent = m.clusters.ViewDetail()
 	}
 
 	listPane := paneBorderFocused.Width(listW).Height(mainH).Render(listContent)
@@ -300,15 +320,8 @@ func (m Model) View() string {
 }
 
 func (m Model) tabBar() string {
-	tabs := []struct {
-		label string
-		panel focusedPanel
-	}{
-		{"Job Runs", panelJobRuns},
-		{"Bundles", panelBundles},
-	}
-	parts := make([]string, len(tabs))
-	for i, t := range tabs {
+	parts := make([]string, len(tabOrder))
+	for i, t := range tabOrder {
 		if m.focused == t.panel {
 			parts[i] = tabActive.Render(t.label)
 		} else {
@@ -326,6 +339,8 @@ func (m Model) helpBar() string {
 	switch m.focused {
 	case panelBundles:
 		return helpStyle.Render(m.bundles.HelpText() + "  " + base)
+	case panelClusters:
+		return helpStyle.Render(m.clusters.HelpText() + "  " + base)
 	default:
 		return helpStyle.Render(m.jobRuns.HelpText() + "  " + base)
 	}
@@ -342,6 +357,7 @@ func (m Model) helpOverlay() string {
 	b.WriteString("  q / ctrl+c        quit\n\n")
 	b.WriteString(helpSectionStyle.Render("Job Runs") + "\n  " + m.jobRuns.HelpText() + "\n\n")
 	b.WriteString(helpSectionStyle.Render("Bundles") + "\n  " + m.bundles.HelpText() + "\n\n")
+	b.WriteString(helpSectionStyle.Render("Clusters") + "\n  " + m.clusters.HelpText() + "\n\n")
 	b.WriteString(helpStyle.Render("press any key to close"))
 	return helpCardStyle.Render(b.String())
 }
@@ -357,6 +373,7 @@ func (m *Model) syncSizes() {
 	listW, _, mainH := m.mainDimensions()
 	m.jobRuns.SetSize(listW-2, mainH-2)
 	m.bundles.SetSize(listW-2, mainH-2)
+	m.clusters.SetSize(listW-2, mainH-2)
 }
 
 func (m Model) logHeight() int {
