@@ -17,6 +17,7 @@ import (
 
 type JobRunsLoadedMsg struct{ Runs []databricks.JobRun }
 type JobRunsErrMsg struct{ Err error }
+type RunCancelDoneMsg struct{ Err error }
 
 // ── list.Item adapter ───────────────────────────────────────────────────────
 
@@ -53,13 +54,24 @@ func statusLabel(s string) string {
 // ── model ────────────────────────────────────────────────────────────────────
 
 type JobRunsModel struct {
-	client  *databricks.Client
-	list    list.Model
-	spinner spinner.Model
-	loaded  bool
-	err     error
-	width   int
-	height  int
+	client     *databricks.Client
+	list       list.Model
+	spinner    spinner.Model
+	loaded     bool
+	err        error
+	actionErr  error
+	confirming int64 // run ID pending cancel confirmation, 0 if none
+	width      int
+	height     int
+}
+
+// activeRunStates are lifecycle states a run can still be canceled from.
+var activeRunStates = map[string]bool{
+	"PENDING":     true,
+	"RUNNING":     true,
+	"QUEUED":      true,
+	"BLOCKED":     true,
+	"TERMINATING": true,
 }
 
 func NewJobRuns(client *databricks.Client) JobRunsModel {
@@ -95,12 +107,34 @@ func (m JobRunsModel) Update(msg tea.Msg) (JobRunsModel, tea.Cmd) {
 		m.loaded = true
 		m.err = msg.Err
 
+	case RunCancelDoneMsg:
+		m.actionErr = msg.Err
+		// Refresh so the CANCELED/TERMINATING state shows up.
+		cmds = append(cmds, fetchJobRuns(m.client))
+
 	case tea.KeyMsg:
+		// A cancel confirmation is pending: y proceeds, anything else aborts.
+		if m.confirming != 0 {
+			id := m.confirming
+			m.confirming = 0
+			if msg.String() == "y" {
+				return m, cancelRun(m.client, id)
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "r":
 			m.loaded = false
 			m.err = nil
+			m.actionErr = nil
 			cmds = append(cmds, tea.Batch(m.spinner.Tick, fetchJobRuns(m.client)))
+		case "x":
+			if sel, ok := m.list.SelectedItem().(runItem); ok && activeRunStates[sel.run.Status] {
+				m.actionErr = nil
+				m.confirming = sel.run.RunID
+				return m, nil
+			}
 		}
 	}
 
@@ -119,7 +153,7 @@ func (m JobRunsModel) Update(msg tea.Msg) (JobRunsModel, tea.Cmd) {
 
 // HelpText returns context-sensitive help for the panel.
 func (m JobRunsModel) HelpText() string {
-	return "↑/↓: navigate  r: refresh"
+	return "↑/↓: navigate  x: cancel run  r: refresh"
 }
 
 // Runs exposes the fetched runs so the app can use them for cross-panel filtering.
@@ -176,6 +210,17 @@ func (m JobRunsModel) ViewDetail() string {
 	row("Started ", r.StartTime.Format("2006-01-02 15:04:05"))
 	row("Duration", r.Duration.Round(time.Second).String())
 
+	if activeRunStates[r.Status] {
+		b.WriteString("\n" + faintStyle.Render("x: cancel this run") + "\n")
+	}
+	if m.confirming != 0 {
+		b.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")).
+			Render(fmt.Sprintf("Cancel run %d? press y to confirm, any other key to abort", m.confirming)) + "\n")
+	}
+	if m.actionErr != nil {
+		b.WriteString("\n" + errorStyle.Render("Error: "+m.actionErr.Error()) + "\n")
+	}
+
 	return b.String()
 }
 
@@ -188,5 +233,11 @@ func fetchJobRuns(client *databricks.Client) tea.Cmd {
 			return JobRunsErrMsg{err}
 		}
 		return JobRunsLoadedMsg{runs}
+	}
+}
+
+func cancelRun(client *databricks.Client, runID int64) tea.Cmd {
+	return func() tea.Msg {
+		return RunCancelDoneMsg{Err: client.CancelRun(context.Background(), runID)}
 	}
 }

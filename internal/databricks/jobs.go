@@ -20,6 +20,11 @@ type JobRun struct {
 // page through the workspace's entire run history, so iterate and stop early.
 const maxJobRuns = 25
 
+// CancelRun cancels an in-flight job run.
+func (c *Client) CancelRun(ctx context.Context, runID int64) error {
+	return c.w.Jobs.CancelRunByRunId(ctx, runID)
+}
+
 func (c *Client) ListJobRuns(ctx context.Context) ([]JobRun, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
