@@ -23,6 +23,8 @@ type LogPane struct {
 	running     bool
 	err         error
 	visible     bool
+	width       int
+	height      int // total inner height available to the pane
 }
 
 func NewLogPane() LogPane {
@@ -36,11 +38,14 @@ func (l *LogPane) Start(label string) {
 	l.running = true
 	l.err = nil
 	l.visible = true
-	l.viewport.SetContent("")
+	l.recalc()
 }
 
 func (l *LogPane) SetTaskSummary(s string) {
 	l.taskSummary = s
+	// The summary sits below the viewport, so its height changes the
+	// viewport's share of the pane.
+	l.recalc()
 }
 
 func (l *LogPane) AppendLine(line string) {
@@ -55,17 +60,32 @@ func (l *LogPane) Finish(err error) {
 }
 
 func (l *LogPane) SetSize(w, h int) {
-	l.viewport.Width = w
-	taskLines := strings.Count(l.taskSummary, "\n") + 1
-	if l.taskSummary == "" {
-		taskLines = 0
+	l.width = w
+	l.height = h
+	l.recalc()
+}
+
+// recalc splits the pane's height between the viewport and the fixed parts
+// rendered around it (1 header line; divider + task summary when present).
+func (l *LogPane) recalc() {
+	if l.width == 0 || l.height == 0 {
+		return // not sized yet
 	}
-	// Reserve 1 line for header + space for task summary
-	reserved := 1 + taskLines
-	if h > reserved {
-		l.viewport.Height = h - reserved
+	l.viewport.Width = l.width
+	reserved := 1 // header
+	if l.taskSummary != "" {
+		reserved += strings.Count(l.taskSummary, "\n") + 2 // summary lines + divider
 	}
+	vh := l.height - reserved
+	if vh < 1 {
+		vh = 1
+	}
+	atBottom := l.viewport.AtBottom()
+	l.viewport.Height = vh
 	l.viewport.SetContent(strings.Join(l.lines, "\n"))
+	if atBottom {
+		l.viewport.GotoBottom()
+	}
 }
 
 func (l LogPane) IsVisible() bool { return l.visible }
@@ -79,6 +99,10 @@ func (l LogPane) Update(msg tea.Msg) (LogPane, tea.Cmd) {
 }
 
 func (l LogPane) View() string {
+	if l.label == "" && len(l.lines) == 0 {
+		return faintStyle.Render("No command output yet — run a bundle action (v / d / r).")
+	}
+
 	var status string
 	if l.running {
 		status = logRunningStyle.Render("● running")

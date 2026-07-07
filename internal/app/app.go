@@ -317,9 +317,6 @@ func (m Model) View() string {
 	rows := []string{m.tabBar(), body}
 
 	if m.logPane.IsVisible() {
-		logInnerH := m.logHeight() - 2
-		logW := m.width - 4
-		m.logPane.SetSize(logW, logInnerH)
 		style := logPaneStyle
 		if m.logFocused {
 			style = logPaneStyle.BorderForeground(lipgloss.Color("11"))
@@ -391,6 +388,8 @@ func (m *Model) syncSizes() {
 	m.bundles.SetSize(listW-2, mainH-2)
 	m.clusters.SetSize(listW-2, mainH-2)
 	m.pipelines.SetSize(listW-2, mainH-2)
+	// Sized even when hidden so the viewport is ready the moment it opens.
+	m.logPane.SetSize(m.width-4, m.logHeight())
 }
 
 func (m Model) logHeight() int {
