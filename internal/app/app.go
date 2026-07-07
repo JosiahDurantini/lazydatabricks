@@ -26,6 +26,7 @@ const (
 	panelJobRuns focusedPanel = iota
 	panelBundles
 	panelClusters
+	panelPipelines
 )
 
 // tabOrder drives both the tab bar and tab-cycling so they can't drift.
@@ -36,6 +37,7 @@ var tabOrder = []struct {
 	{"Job Runs", panelJobRuns},
 	{"Bundles", panelBundles},
 	{"Clusters", panelClusters},
+	{"Pipelines", panelPipelines},
 }
 
 var (
@@ -84,6 +86,7 @@ type Model struct {
 	jobRuns       panels.JobRunsModel
 	bundles       panels.BundlesModel
 	clusters      panels.ClustersModel
+	pipelines     panels.PipelinesModel
 	logPane       panels.LogPane
 	logFocused    bool
 	logCh         <-chan string
@@ -102,16 +105,17 @@ func New() (Model, error) {
 		return Model{}, err
 	}
 	return Model{
-		client:   client,
-		jobRuns:  panels.NewJobRuns(client),
-		bundles:  panels.NewBundles(),
-		clusters: panels.NewClusters(client),
-		logPane:  panels.NewLogPane(),
+		client:    client,
+		jobRuns:   panels.NewJobRuns(client),
+		bundles:   panels.NewBundles(),
+		clusters:  panels.NewClusters(client),
+		pipelines: panels.NewPipelines(client),
+		logPane:   panels.NewLogPane(),
 	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.jobRuns.Init(), m.bundles.Init(), m.clusters.Init())
+	return tea.Batch(m.jobRuns.Init(), m.bundles.Init(), m.clusters.Init(), m.pipelines.Init())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -254,6 +258,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.clusters, cmd = m.clusters.Update(msg)
 			cmds = append(cmds, cmd)
+		case panelPipelines:
+			var cmd tea.Cmd
+			m.pipelines, cmd = m.pipelines.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 	} else {
 		var cmd tea.Cmd
@@ -262,6 +270,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.bundles, cmd = m.bundles.Update(msg)
 		cmds = append(cmds, cmd)
 		m.clusters, cmd = m.clusters.Update(msg)
+		cmds = append(cmds, cmd)
+		m.pipelines, cmd = m.pipelines.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -295,6 +305,9 @@ func (m Model) View() string {
 	case panelClusters:
 		listContent = m.clusters.ViewList()
 		detailContent = m.clusters.ViewDetail()
+	case panelPipelines:
+		listContent = m.pipelines.ViewList()
+		detailContent = m.pipelines.ViewDetail()
 	}
 
 	listPane := paneBorderFocused.Width(listW).Height(mainH).Render(listContent)
@@ -341,6 +354,8 @@ func (m Model) helpBar() string {
 		return helpStyle.Render(m.bundles.HelpText() + "  " + base)
 	case panelClusters:
 		return helpStyle.Render(m.clusters.HelpText() + "  " + base)
+	case panelPipelines:
+		return helpStyle.Render(m.pipelines.HelpText() + "  " + base)
 	default:
 		return helpStyle.Render(m.jobRuns.HelpText() + "  " + base)
 	}
@@ -358,6 +373,7 @@ func (m Model) helpOverlay() string {
 	b.WriteString(helpSectionStyle.Render("Job Runs") + "\n  " + m.jobRuns.HelpText() + "\n\n")
 	b.WriteString(helpSectionStyle.Render("Bundles") + "\n  " + m.bundles.HelpText() + "\n\n")
 	b.WriteString(helpSectionStyle.Render("Clusters") + "\n  " + m.clusters.HelpText() + "\n\n")
+	b.WriteString(helpSectionStyle.Render("Pipelines") + "\n  " + m.pipelines.HelpText() + "\n\n")
 	b.WriteString(helpStyle.Render("press any key to close"))
 	return helpCardStyle.Render(b.String())
 }
@@ -374,6 +390,7 @@ func (m *Model) syncSizes() {
 	m.jobRuns.SetSize(listW-2, mainH-2)
 	m.bundles.SetSize(listW-2, mainH-2)
 	m.clusters.SetSize(listW-2, mainH-2)
+	m.pipelines.SetSize(listW-2, mainH-2)
 }
 
 func (m Model) logHeight() int {

@@ -54,7 +54,7 @@ type jobItem struct {
 }
 
 func (j jobItem) FilterValue() string { return j.key }
-func (j jobItem) Title() string { return j.key }
+func (j jobItem) Title() string       { return j.key }
 func (j jobItem) Description() string { return "key: " + j.key }
 
 // ── model ────────────────────────────────────────────────────────────────────

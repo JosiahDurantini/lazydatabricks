@@ -28,3 +28,24 @@ func ClusterStateLabel(state string) string {
 	}
 	return lipgloss.NewStyle().Foreground(col).Render(state)
 }
+
+var pipelineStateColors = map[string]lipgloss.Color{
+	"RUNNING":    lipgloss.Color("2"),
+	"IDLE":       lipgloss.Color("6"),
+	"STARTING":   lipgloss.Color("11"),
+	"DEPLOYING":  lipgloss.Color("11"),
+	"RESETTING":  lipgloss.Color("11"),
+	"RECOVERING": lipgloss.Color("11"),
+	"STOPPING":   lipgloss.Color("3"),
+	"FAILED":     lipgloss.Color("9"),
+	"DELETED":    lipgloss.Color("8"),
+}
+
+// PipelineStateLabel renders a DLT pipeline state with its conventional color.
+func PipelineStateLabel(state string) string {
+	col, ok := pipelineStateColors[state]
+	if !ok {
+		col = lipgloss.Color("7")
+	}
+	return lipgloss.NewStyle().Foreground(col).Render(state)
+}
