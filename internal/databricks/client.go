@@ -1,6 +1,8 @@
 package databricks
 
 import (
+	"net/http"
+
 	"github.com/databricks/databricks-sdk-go"
 )
 
@@ -13,6 +15,11 @@ type Client struct {
 func NewClient() (*Client, error) {
 	w, err := databricks.NewWorkspaceClient()
 	if err != nil {
+		return nil, err
+	}
+	// The SDK resolves credentials lazily; force it now so a misconfigured
+	// environment fails fast with a clear error instead of inside every panel.
+	if err := w.Config.Authenticate(&http.Request{Header: make(http.Header)}); err != nil {
 		return nil, err
 	}
 	return &Client{w: w}, nil
