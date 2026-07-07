@@ -16,17 +16,27 @@ type JobRun struct {
 	Duration  time.Duration
 }
 
-func (c *Client) ListJobRuns(ctx context.Context) ([]JobRun, error) {
-	runs, err := c.w.Jobs.ListRunsAll(ctx, jobs.ListRunsRequest{Limit: 25})
-	if err != nil {
-		return nil, err
-	}
+// maxJobRuns caps how many recent runs the panel shows. ListRunsAll would
+// page through the workspace's entire run history, so iterate and stop early.
+const maxJobRuns = 25
 
-	result := make([]JobRun, 0, len(runs))
-	for _, r := range runs {
-		status := string(r.State.LifeCycleState)
-		if r.State.ResultState != "" {
-			status = string(r.State.ResultState)
+func (c *Client) ListJobRuns(ctx context.Context) ([]JobRun, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	it := c.w.Jobs.ListRuns(ctx, jobs.ListRunsRequest{Limit: maxJobRuns})
+	result := make([]JobRun, 0, maxJobRuns)
+	for it.HasNext(ctx) && len(result) < maxJobRuns {
+		r, err := it.Next(ctx)
+		if err != nil {
+			return nil, err
+		}
+		status := "UNKNOWN"
+		if r.State != nil {
+			status = string(r.State.LifeCycleState)
+			if r.State.ResultState != "" {
+				status = string(r.State.ResultState)
+			}
 		}
 
 		start := time.UnixMilli(r.StartTime)
